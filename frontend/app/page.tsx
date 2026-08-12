@@ -8,7 +8,7 @@ import Timeline from "@/components/Timeline";
 import EventFilter from "@/components/EventFilter";
 import type { DashboardStats, NewsArticle } from "@/types";
 
-const API = "http://localhost:8000";
+const API = "";
 
 export default function Home() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -41,7 +41,7 @@ export default function Home() {
         setArticles(items);
         setError(null);
       } catch {
-        setError("שגיאה בחיבור לשרת. ודא שה-backend פועל על http://localhost:8000");
+        setError("שגיאה בחיבור לשרת. ודא שה-backend פועל.");
       } finally {
         setLoading(false);
       }

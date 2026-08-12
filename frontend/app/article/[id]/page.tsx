@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { FullAnalysis } from "@/types";
 
-const API = "http://localhost:8000";
+const API = "";
 
 const STAGE_LABELS: Record<string, string> = {
   embryo: "עובר", infant: "יונק", child: "ילד", adult: "בוגר",

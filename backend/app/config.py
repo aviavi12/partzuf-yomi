@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    telegram_chat_id_global: str = ""
+    telegram_chat_id_israel: str = ""
 
     ai_provider: Literal["openai", "anthropic", "none"] = "none"
     ai_api_key: str = ""

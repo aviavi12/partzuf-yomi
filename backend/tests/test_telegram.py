@@ -8,9 +8,15 @@ from app.services.analysis_service import analyze_unprocessed_articles
 @pytest.mark.asyncio
 async def test_telegram_skipped_without_config(db):
     from app.telegram.bot import send_hourly_digest
-    result = await send_hourly_digest(db)
-    assert result["status"] == "skipped"
-    assert "not configured" in result["reason"]
+    with patch("app.telegram.bot.settings") as mock_settings:
+        mock_settings.telegram_bot_token = ""
+        mock_settings.telegram_chat_id = ""
+        mock_settings.telegram_chat_id_global = ""
+        mock_settings.telegram_chat_id_israel = ""
+        mock_settings.timezone = "Asia/Jerusalem"
+        result = await send_hourly_digest(db)
+        assert result["status"] == "skipped"
+        assert "not configured" in result["reason"]
 
 
 @pytest.mark.asyncio

@@ -48,7 +48,7 @@ export default function NewsFeed({ articles }: Props) {
     setSelectedId(id);
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/analysis/${id}`);
+      const res = await fetch(`/api/analysis/${id}`);
       const data = await res.json();
       setAnalysis(data);
     } catch {

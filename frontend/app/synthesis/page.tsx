@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { DailySummaryResponse, DashboardStats } from "@/types";
 
-const API = "http://localhost:8000";
+const API = "";
 
 const STAGE_LABELS: Record<string, string> = {
   embryo: "עובר", infant: "יונק", child: "ילד", adult: "בוגר",
@@ -16,6 +16,21 @@ const STAGE_EMOJIS: Record<string, string> = {
   embryo: "🥒", infant: "👶", child: "🧒", adult: "🧑",
   first_woman: "💕", primary_woman: "💍", third_woman: "🌟",
   courtship: "💐", marriage: "🤝", new_generation: "🌱",
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  war: "מלחמה", peace: "שלום", alliance: "ברית", economy: "כלכלה",
+  immigration: "הגירה", technology: "טכנולוגיה", family: "משפחה",
+  elections: "בחירות", threat: "איום", defense: "הגנה",
+  diplomacy: "דיפלומטיה", terrorism: "טרור", security: "ביטחון",
+  education: "חינוך", health: "בריאות", birth: "ילודה",
+  demography: "דמוגרפיה", energy: "אנרגיה", food: "מזון",
+  water: "מים", infrastructure: "תשתיות", science: "מדע",
+  culture: "תרבות", religion: "דת", law: "משפט",
+  protest: "מחאה", leadership: "מנהיגות", negotiation: "משא ומתן",
+  refugees: "פליטים", innovation: "חדשנות", labor: "שוק העבודה",
+  cooperation: "שיתוף פעולה", crisis: "משבר", recovery: "התאוששות",
+  social_change: "שינוי חברתי",
 };
 
 export default function SynthesisPage() {
@@ -174,7 +189,7 @@ export default function SynthesisPage() {
                       const pct = ((count / total) * 100).toFixed(0);
                       return (
                         <div key={type} className="flex items-center gap-2">
-                          <div className="w-24 text-sm truncate">{type}</div>
+                          <div className="w-24 text-sm truncate">{EVENT_LABELS[type] || type}</div>
                           <div
                             className="flex-1 h-5 rounded-full overflow-hidden"
                             style={{ background: "var(--muted)" }}

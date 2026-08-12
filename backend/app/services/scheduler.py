@@ -39,28 +39,34 @@ async def _daily_synthesis_job():
 
 
 def start_scheduler():
-    if not settings.hourly_collection_enabled:
-        logger.info("Scheduler disabled by configuration")
-        return
+    has_jobs = False
 
-    scheduler.add_job(
-        _hourly_job,
-        trigger=IntervalTrigger(hours=1),
-        id="hourly_collection",
-        name="Hourly News Collection & Analysis",
-        replace_existing=True,
-    )
+    if settings.hourly_collection_enabled:
+        scheduler.add_job(
+            _hourly_job,
+            trigger=IntervalTrigger(hours=1),
+            id="hourly_collection",
+            name="Hourly News Collection & Analysis",
+            replace_existing=True,
+        )
+        has_jobs = True
+        logger.info("Hourly collection job enabled")
+    else:
+        logger.info("Hourly collection disabled by configuration")
 
     scheduler.add_job(
         _daily_synthesis_job,
         trigger=CronTrigger(hour=settings.daily_synthesis_hour, minute=0, timezone=tz),
         id="daily_synthesis",
-        name="Daily Synthesis at 18:00",
+        name=f"Daily Synthesis at {settings.daily_synthesis_hour}:00",
         replace_existing=True,
     )
+    has_jobs = True
+    logger.info(f"Daily synthesis job enabled at {settings.daily_synthesis_hour}:00 {settings.timezone}")
 
-    scheduler.start()
-    logger.info(f"Scheduler started: hourly collection + daily synthesis at {settings.daily_synthesis_hour}:00 {settings.timezone}")
+    if has_jobs:
+        scheduler.start()
+        logger.info("Scheduler started")
 
 
 def stop_scheduler():
