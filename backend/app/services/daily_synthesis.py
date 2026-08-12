@@ -87,14 +87,16 @@ async def generate_daily_synthesis(db: AsyncSession, target_date: date | None = 
     existing = await db.execute(select(DailySummary).where(DailySummary.summary_date == target))
     summary = existing.scalar_one_or_none()
 
+    import json as _json
+
     if summary:
         summary.total_articles = total
         summary.global_articles = global_count
         summary.israel_articles = israel_count
         summary.dominant_stage = dominant_stage
         summary.secondary_stage = secondary_stage
-        summary.dominant_event_types = dominant_events
-        summary.stage_distribution = dict(stage_counter)
+        summary.dominant_event_types_json = _json.dumps(dominant_events, ensure_ascii=False)
+        summary.stage_distribution_json = _json.dumps(dict(stage_counter), ensure_ascii=False)
         summary.trend_text = trend_text
         summary.confidence = confidence
     else:
@@ -105,8 +107,8 @@ async def generate_daily_synthesis(db: AsyncSession, target_date: date | None = 
             israel_articles=israel_count,
             dominant_stage=dominant_stage,
             secondary_stage=secondary_stage,
-            dominant_event_types=dominant_events,
-            stage_distribution=dict(stage_counter),
+            dominant_event_types_json=_json.dumps(dominant_events, ensure_ascii=False),
+            stage_distribution_json=_json.dumps(dict(stage_counter), ensure_ascii=False),
             trend_text=trend_text,
             confidence=confidence,
         )

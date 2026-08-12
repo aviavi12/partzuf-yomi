@@ -34,3 +34,13 @@ async def send_telegram(db: AsyncSession = Depends(get_db)):
         return {"status": "ok", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/run-synthesis")
+async def run_synthesis(db: AsyncSession = Depends(get_db)):
+    from app.services.daily_synthesis import generate_daily_synthesis
+    try:
+        result = await generate_daily_synthesis(db)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
