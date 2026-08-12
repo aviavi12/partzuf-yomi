@@ -1,0 +1,48 @@
+# Web framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+pydantic==2.11.4
+pydantic-settings==2.9.1
+
+# Database
+sqlalchemy[asyncio]==2.0.41
+asyncpg==0.30.0
+alembic==1.16.1
+greenlet==3.2.3
+
+# Redis
+redis==6.2.0
+
+# HTTP client
+httpx==0.28.1
+aiohttp==3.12.13
+
+# Scheduling
+apscheduler==3.11.0
+
+# Telegram
+python-telegram-bot==22.2
+
+# AI
+openai==1.86.0
+
+# NLP utilities
+hashlib-additional==1.0.1
+
+# HTML parsing (for news collection)
+beautifulsoup4==4.13.4
+lxml==5.4.0
+feedparser==6.0.11
+
+# Utilities
+python-dateutil==2.9.0
+pytz==2025.2
+
+# Testing
+pytest==8.4.1
+pytest-asyncio==1.0.0
+pytest-cov==6.2.1
+httpx==0.28.1
+
+# Logging
+structlog==25.4.0
