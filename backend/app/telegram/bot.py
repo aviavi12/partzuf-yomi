@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 tz = pytz.timezone(settings.timezone)
 
-MIN_RELEVANCE_SCORE = 20
+MIN_RELEVANCE_SCORE = 5
 
 SPAM_KEYWORDS = [
     "וילות", "צימר", "השכרה", "דירות נופש", "מבצע", "הנחה", "קופון",
