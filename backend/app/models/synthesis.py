@@ -24,6 +24,8 @@ class DailySummary(Base):
     secondary_stage: Mapped[str | None] = mapped_column(String(50))
     dominant_event_types_json: Mapped[str | None] = mapped_column(Text)
     stage_distribution_json: Mapped[str | None] = mapped_column(Text)
+    daily_stage_vector_json: Mapped[str | None] = mapped_column(Text)
+    temporal_analysis_json: Mapped[str | None] = mapped_column(Text)
 
     global_pattern: Mapped[str | None] = mapped_column(Text)
     israel_pattern: Mapped[str | None] = mapped_column(Text)

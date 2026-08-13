@@ -46,6 +46,11 @@ class DevelopmentalAnalysis(Base):
 
     scientific_context_json: Mapped[str | None] = mapped_column(Text)
 
+    stage_vector_json: Mapped[str | None] = mapped_column(Text)
+    causal_chain_json: Mapped[str | None] = mapped_column(Text)
+    father_attributes_json: Mapped[str | None] = mapped_column(Text)
+    mother_attributes_json: Mapped[str | None] = mapped_column(Text)
+
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     final_score: Mapped[int] = mapped_column(Integer, default=0)
     analysis_text: Mapped[str | None] = mapped_column(Text)

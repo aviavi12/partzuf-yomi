@@ -34,6 +34,9 @@ class DailySummaryResponse(BaseModel):
     relationship_pattern: str | None = None
     future_pattern: str | None = None
 
+    daily_stage_vector_json: str | None = None
+    temporal_analysis_json: str | None = None
+
     trend_text: str | None = None
     confidence: float = 0.0
 
