@@ -16,6 +16,17 @@ logger = logging.getLogger(__name__)
 
 tz = pytz.timezone(settings.timezone)
 
+MIN_RELEVANCE_SCORE = 20
+
+SPAM_KEYWORDS = [
+    "וילות", "צימר", "השכרה", "דירות נופש", "מבצע", "הנחה", "קופון",
+    "הזמן עכשיו", "החל מ-", "ש\"ח ללילה", "מחיר מיוחד", "בהנחה",
+    "sale", "discount", "coupon", "booking", "rent", "hotel",
+    "sponsored", "מודעה", "פרסומת", "שיתוף פעולה מסחרי",
+    "קנה", "buy now", "order now", "free shipping", "משלוח חינם",
+    "ביטוח", "הלוואה", "משכנתא", "קזינו", "הימורים",
+]
+
 STAGE_ICONS = {
     "embryo": "🤰", "infant": "🍼", "child": "👦", "adult": "🧑",
     "first_woman": "💃", "primary_woman": "👫", "third_woman": "🌟",
@@ -80,6 +91,11 @@ ALL_STAGES = [
     "first_woman", "primary_woman", "third_woman",
     "courtship", "marriage", "new_generation",
 ]
+
+def _is_spam(headline: str) -> bool:
+    h = headline.lower()
+    return any(kw in h for kw in SPAM_KEYWORDS)
+
 
 HOUR_TO_STAGE = {
     6: "embryo", 7: "embryo",
@@ -156,16 +172,29 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
     stage_counts: dict[str, int] = {}
     all_father: dict[str, list[int]] = {}
     all_mother: dict[str, list[int]] = {}
+    skipped = 0
 
     for article in articles:
+        if _is_spam(article.headline or ""):
+            skipped += 1
+            continue
+
         source_r = await db.execute(select(NewsSource).where(NewsSource.id == article.source_id))
         source = source_r.scalar_one_or_none()
 
         dev_r = await db.execute(select(DevelopmentalAnalysis).where(DevelopmentalAnalysis.article_id == article.id))
         dev = dev_r.scalar_one_or_none()
 
+        if dev and dev.final_score < MIN_RELEVANCE_SCORE:
+            skipped += 1
+            continue
+
+        if not dev:
+            skipped += 1
+            continue
+
         stage_label = ""
-        if dev and dev.developmental_stage:
+        if dev.developmental_stage:
             stage_counts[dev.developmental_stage] = stage_counts.get(dev.developmental_stage, 0) + 1
             try:
                 stage_label = f" [{STAGE_LABELS_HE.get(DevelopmentalStage(dev.developmental_stage), dev.developmental_stage)}]"
@@ -200,6 +229,8 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
     avg_father = {k: int(sum(v) / len(v)) for k, v in all_father.items() if v}
     avg_mother = {k: int(sum(v) / len(v)) for k, v in all_mother.items() if v}
 
+    logger.info(f"Filtered {skipped} irrelevant articles, kept {len(global_articles)+len(israel_articles)}")
+
     return {
         "global_articles": global_articles,
         "israel_articles": israel_articles,
@@ -208,6 +239,7 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
         "dominant_he": dominant_he,
         "avg_father": avg_father,
         "avg_mother": avg_mother,
+        "skipped": skipped,
     }
 
 
@@ -229,6 +261,10 @@ async def send_hourly_digest(db: AsyncSession) -> dict:
         return {"status": "skipped", "reason": "No articles found"}
 
     data = await _gather_analysis(db, articles)
+
+    if not data["global_articles"] and not data["israel_articles"]:
+        return {"status": "skipped", "reason": f"All {data['skipped']} articles filtered as irrelevant"}
+
     now = datetime.now(tz)
     current_hour = now.hour
     hour_stage = HOUR_TO_STAGE.get(current_hour, "adult")
