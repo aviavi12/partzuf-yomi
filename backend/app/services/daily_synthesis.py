@@ -22,8 +22,8 @@ ALL_STAGES = [s.value for s in DevelopmentalStage]
 
 async def generate_daily_synthesis(db: AsyncSession, target_date: date | None = None) -> dict:
     target = target_date or date.today()
-    day_start = datetime.combine(target, datetime.min.time()).replace(tzinfo=tz)
-    day_end = datetime.combine(target, datetime.max.time()).replace(tzinfo=tz)
+    day_start = datetime.combine(target, datetime.min.time())
+    day_end = datetime.combine(target, datetime.max.time())
 
     articles_q = select(NewsArticle).where(
         and_(NewsArticle.collected_at >= day_start, NewsArticle.collected_at <= day_end)

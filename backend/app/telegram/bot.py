@@ -67,14 +67,21 @@ async def send_hourly_digest(db: AsyncSession) -> dict:
         return {"status": "skipped", "reason": "No chat IDs configured"}
 
     now = datetime.now(tz)
-    hour_ago = now - timedelta(hours=1)
+    hour_ago_utc = datetime.utcnow() - timedelta(hours=1)
 
-    articles_q = select(NewsArticle).where(NewsArticle.collected_at >= hour_ago).order_by(NewsArticle.published_at.desc())
+    articles_q = select(NewsArticle).where(NewsArticle.collected_at >= hour_ago_utc).order_by(NewsArticle.published_at.desc())
     result = await db.execute(articles_q)
     articles = result.scalars().all()
 
     if not articles:
-        return {"status": "skipped", "reason": "No articles in the last hour"}
+        all_count_q = select(func.count()).select_from(NewsArticle)
+        all_count = (await db.execute(all_count_q)).scalar() or 0
+        if all_count > 0:
+            articles_q = select(NewsArticle).where(NewsArticle.is_analyzed == True).order_by(NewsArticle.collected_at.desc()).limit(30)
+            result = await db.execute(articles_q)
+            articles = result.scalars().all()
+        if not articles:
+            return {"status": "skipped", "reason": "No articles found"}
 
     global_articles = []
     israel_articles = []
