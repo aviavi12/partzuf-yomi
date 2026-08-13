@@ -20,6 +20,14 @@ tz = pytz.timezone(settings.timezone)
 ALL_STAGES = [s.value for s in DevelopmentalStage]
 
 
+async def _load_all_day_articles(db: AsyncSession, day_start: datetime, day_end: datetime) -> list:
+    q = select(NewsArticle).where(
+        and_(NewsArticle.collected_at >= day_start, NewsArticle.collected_at <= day_end)
+    ).order_by(NewsArticle.published_at.desc())
+    result = await db.execute(q)
+    return result.scalars().all()
+
+
 async def generate_daily_synthesis(db: AsyncSession, target_date: date | None = None) -> dict:
     target = target_date or date.today()
     day_start = datetime.combine(target, datetime.min.time())
@@ -137,11 +145,14 @@ async def generate_daily_synthesis(db: AsyncSession, target_date: date | None = 
 
     await db.commit()
 
-    tg_text = _format_daily_telegram(target, total, global_count, israel_count,
-                                      dom_he, dominant_events, trend_text, confidence,
-                                      daily_stage_vector, temporal_analysis)
+    from app.telegram.bot import _load_articles, _gather_analysis, _format_daily_full_analysis, send_daily_synthesis
 
-    from app.telegram.bot import send_daily_synthesis
+    all_articles = await _load_all_day_articles(db, day_start, day_end)
+    tg_data = await _gather_analysis(db, all_articles)
+
+    date_str = target.strftime("%d/%m/%Y")
+    tg_text = _format_daily_full_analysis(date_str, tg_data, trend_text)
+
     tg_result = await send_daily_synthesis(db, tg_text)
 
     if tg_result.get("status") == "sent":
