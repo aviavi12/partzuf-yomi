@@ -9,7 +9,7 @@ services:
       - key: APP_ENV
         value: production
       - key: DEMO_MODE
-        value: "true"
+        value: "false"
       - key: DATABASE_URL
         value: sqlite+aiosqlite:///./partzuf_yomi.db
       - key: HOURLY_COLLECTION_ENABLED
@@ -21,6 +21,10 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_CHAT_ID_GLOBAL
+        sync: false
+      - key: TELEGRAM_CHAT_ID_ISRAEL
         sync: false
       - key: AI_PROVIDER
         value: none
