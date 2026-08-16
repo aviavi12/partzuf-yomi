@@ -1,5 +1,6 @@
 import logging
-from datetime import date, timedelta
+import re
+from datetime import date
 
 import feedparser
 import httpx
@@ -7,7 +8,7 @@ from pyluach import dates as heb_dates
 
 logger = logging.getLogger(__name__)
 
-WAYBACK_API = "https://archive.org/wayback/available"
+WAYBACK_CDX = "https://web.archive.org/cdx/search/cdx"
 BBC_RSS_URL = "feeds.bbci.co.uk/news/world/rss.xml"
 
 
@@ -21,11 +22,10 @@ def _hebrew_date_str(d: date) -> str:
     return f"{hd.day} {months_he.get(hd.month, str(hd.month))} {hd.year}"
 
 
-def _hebrew_to_gregorian(heb_year: int, heb_month: int, heb_day: int) -> date:
+def _hebrew_to_gregorian(heb_year: int, heb_month: int, heb_day: int) -> date | None:
     try:
         hd = heb_dates.HebrewDate(heb_year, heb_month, heb_day)
-        gd = hd.to_pydate()
-        return gd
+        return hd.to_pydate()
     except Exception:
         return None
 
@@ -56,31 +56,51 @@ def get_historical_dates(today: date) -> dict:
     }
 
 
-async def _fetch_wayback_headlines(target_date: date, max_headlines: int = 5) -> list[str]:
-    timestamp = target_date.strftime("%Y%m%d")
+def _translate_text(text: str) -> str:
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(WAYBACK_API, params={
-                "url": f"http://{BBC_RSS_URL}",
-                "timestamp": timestamp,
-            })
-            data = resp.json()
+        from deep_translator import GoogleTranslator
+        return GoogleTranslator(source="en", target="iw").translate(text) or text
+    except Exception:
+        return text
 
-            snapshot = data.get("archived_snapshots", {}).get("closest", {})
-            if not snapshot or not snapshot.get("available"):
+
+async def _fetch_wayback_headlines(target_date: date, max_headlines: int = 5) -> list[str]:
+    ts_from = target_date.strftime("%Y%m%d")
+    ts_to = target_date.strftime("%Y%m%d")
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            cdx_resp = await client.get(WAYBACK_CDX, params={
+                "url": f"http://{BBC_RSS_URL}",
+                "from": ts_from,
+                "to": ts_to + "235959",
+                "output": "json",
+                "limit": "1",
+                "fl": "timestamp",
+            })
+
+            if cdx_resp.status_code != 200:
+                logger.warning(f"CDX returned {cdx_resp.status_code} for {target_date}")
                 return []
 
-            archive_url = snapshot["url"]
-            archive_url = archive_url.replace("/http", "id_/http")
+            rows = cdx_resp.json()
+            if len(rows) < 2:
+                logger.info(f"No Wayback snapshot for {target_date}")
+                return []
 
-            rss_resp = await client.get(archive_url, timeout=15.0, follow_redirects=True)
+            timestamp = rows[1][0]
+            raw_url = f"https://web.archive.org/web/{timestamp}id_/http://{BBC_RSS_URL}"
+
+            rss_resp = await client.get(raw_url, timeout=15.0, follow_redirects=True)
             feed = feedparser.parse(rss_resp.text)
 
             headlines = []
             for entry in feed.entries[:max_headlines]:
                 title = entry.get("title", "").strip()
                 if title:
-                    headlines.append(title)
+                    translated = _translate_text(title)
+                    headlines.append(translated)
+
+            logger.info(f"Wayback {target_date}: found {len(headlines)} headlines")
             return headlines
 
     except Exception as e:

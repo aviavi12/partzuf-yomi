@@ -92,11 +92,6 @@ ALL_STAGES = [
     "courtship", "marriage", "new_generation",
 ]
 
-def _is_spam(headline: str) -> bool:
-    h = headline.lower()
-    return any(kw in h for kw in SPAM_KEYWORDS)
-
-
 HOUR_TO_STAGE = {
     6: "embryo", 7: "embryo",
     8: "infant", 9: "infant",
@@ -111,6 +106,36 @@ HOUR_TO_STAGE = {
     0: "embryo", 1: "embryo", 2: "embryo",
     3: "embryo", 4: "embryo", 5: "embryo",
 }
+
+
+def _is_spam(headline: str) -> bool:
+    h = headline.lower()
+    return any(kw in h for kw in SPAM_KEYWORDS)
+
+
+def _translate_headline(text: str) -> str:
+    try:
+        from deep_translator import GoogleTranslator
+        translated = GoogleTranslator(source="en", target="iw").translate(text)
+        return translated or text
+    except Exception:
+        return text
+
+
+def _translate_headlines_batch(headlines: list[str]) -> list[str]:
+    try:
+        from deep_translator import GoogleTranslator
+        translator = GoogleTranslator(source="en", target="iw")
+        results = []
+        for h in headlines:
+            try:
+                t = translator.translate(h)
+                results.append(t or h)
+            except Exception:
+                results.append(h)
+        return results
+    except Exception:
+        return headlines
 
 
 def _get_chat_ids() -> dict[str, str]:
@@ -159,7 +184,7 @@ async def _load_articles(db: AsyncSession) -> list:
         if all_count > 0:
             q = select(NewsArticle).where(
                 NewsArticle.is_analyzed == True
-            ).order_by(NewsArticle.collected_at.desc()).limit(30)
+            ).order_by(NewsArticle.collected_at.desc()).limit(50)
             result = await db.execute(q)
             articles = result.scalars().all()
 
@@ -181,20 +206,21 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
 
         source_r = await db.execute(select(NewsSource).where(NewsSource.id == article.source_id))
         source = source_r.scalar_one_or_none()
+        is_israeli = source and source.source_type != "international"
 
         dev_r = await db.execute(select(DevelopmentalAnalysis).where(DevelopmentalAnalysis.article_id == article.id))
         dev = dev_r.scalar_one_or_none()
 
-        if dev and dev.final_score < MIN_RELEVANCE_SCORE:
-            skipped += 1
-            continue
-
-        if not dev:
-            skipped += 1
-            continue
+        if not is_israeli:
+            if dev and dev.final_score < MIN_RELEVANCE_SCORE:
+                skipped += 1
+                continue
+            if not dev:
+                skipped += 1
+                continue
 
         stage_label = ""
-        if dev.developmental_stage:
+        if dev and dev.developmental_stage:
             stage_counts[dev.developmental_stage] = stage_counts.get(dev.developmental_stage, 0) + 1
             try:
                 stage_label = f" [{STAGE_LABELS_HE.get(DevelopmentalStage(dev.developmental_stage), dev.developmental_stage)}]"
@@ -214,8 +240,12 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-        entry = {"headline": article.headline, "stage_label": stage_label}
-        if source and source.source_type == "international":
+        headline = article.headline or ""
+        if article.language == "en" and headline:
+            headline = _translate_headline(headline)
+
+        entry = {"headline": headline, "stage_label": stage_label}
+        if not is_israeli:
             global_articles.append(entry)
         else:
             israel_articles.append(entry)
@@ -229,7 +259,7 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
     avg_father = {k: int(sum(v) / len(v)) for k, v in all_father.items() if v}
     avg_mother = {k: int(sum(v) / len(v)) for k, v in all_mother.items() if v}
 
-    logger.info(f"Filtered {skipped} irrelevant articles, kept {len(global_articles)+len(israel_articles)}")
+    logger.info(f"Filtered {skipped}, kept global={len(global_articles)} israel={len(israel_articles)}")
 
     return {
         "global_articles": global_articles,
@@ -350,8 +380,10 @@ def _format_historical_section(hist: dict) -> list[str]:
     h1 = hist.get("hebrew_1y", {})
     h2 = hist.get("hebrew_2y", {})
 
-    if g1.get("headlines"):
+    if g1.get("headlines") or g2.get("headlines"):
         lines.append("━━━━━━━━━━━━")
+
+    if g1.get("headlines"):
         lines.append(f"📜 <b>לפני שנה (לועזי) — {g1['label']}</b>")
         for h in g1["headlines"][:3]:
             lines.append(f"• {h[:80]}")
@@ -362,6 +394,10 @@ def _format_historical_section(hist: dict) -> list[str]:
         for h in g2["headlines"][:3]:
             lines.append(f"• {h[:80]}")
         has_content = True
+
+    if h1.get("headlines") or h2.get("headlines"):
+        if has_content:
+            lines.append("")
 
     if h1.get("headlines"):
         lines.append(f"🕎 <b>לפני שנה (עברי) — {h1['hebrew_label']} ({h1['gregorian_label']})</b>")

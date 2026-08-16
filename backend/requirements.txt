@@ -42,6 +42,9 @@ pytz==2025.2
 # Hebrew calendar
 pyluach==2.2.0
 
+# Translation
+deep-translator==1.11.4
+
 # Testing
 pytest==8.4.1
 pytest-asyncio==1.0.0
