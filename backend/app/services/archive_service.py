@@ -12,14 +12,26 @@ WAYBACK_CDX = "https://web.archive.org/cdx/search/cdx"
 BBC_RSS_URL = "feeds.bbci.co.uk/news/world/rss.xml"
 
 
+MONTHS_HE = {
+    1: "ניסן", 2: "אייר", 3: "סיוון", 4: "תמוז", 5: "אב", 6: "אלול",
+    7: "תשרי", 8: "חשוון", 9: "כסלו", 10: "טבת", 11: "שבט", 12: "אדר",
+    13: "אדר ב׳",
+}
+
+GEMATRIA = {
+    1: "א׳", 2: "ב׳", 3: "ג׳", 4: "ד׳", 5: "ה׳", 6: "ו׳", 7: "ז׳",
+    8: "ח׳", 9: "ט׳", 10: "י׳", 11: "י״א", 12: "י״ב", 13: "י״ג",
+    14: "י״ד", 15: "ט״ו", 16: "ט״ז", 17: "י״ז", 18: "י״ח", 19: "י״ט",
+    20: "כ׳", 21: "כ״א", 22: "כ״ב", 23: "כ״ג", 24: "כ״ד", 25: "כ״ה",
+    26: "כ״ו", 27: "כ״ז", 28: "כ״ח", 29: "כ״ט", 30: "ל׳",
+}
+
+
 def _hebrew_date_str(d: date) -> str:
     hd = heb_dates.GregorianDate(d.year, d.month, d.day).to_heb()
-    months_he = {
-        1: "תשרי", 2: "חשוון", 3: "כסלו", 4: "טבת", 5: "שבט", 6: "אדר",
-        7: "ניסן", 8: "אייר", 9: "סיוון", 10: "תמוז", 11: "אב", 12: "אלול",
-        13: "אדר ב׳",
-    }
-    return f"{hd.day} {months_he.get(hd.month, str(hd.month))} {hd.year}"
+    day_str = GEMATRIA.get(hd.day, str(hd.day))
+    month_str = MONTHS_HE.get(hd.month, str(hd.month))
+    return f"{day_str} {month_str} {hd.year}"
 
 
 def _hebrew_to_gregorian(heb_year: int, heb_month: int, heb_day: int) -> date | None:
