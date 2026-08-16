@@ -4,7 +4,6 @@ from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.database import async_session
@@ -44,13 +43,13 @@ def start_scheduler():
     if settings.hourly_collection_enabled:
         scheduler.add_job(
             _hourly_job,
-            trigger=IntervalTrigger(hours=1),
+            trigger=CronTrigger(minute=5, timezone=tz),
             id="hourly_collection",
-            name="Hourly News Collection & Analysis",
+            name="Hourly News Collection & Analysis (every hour at :05)",
             replace_existing=True,
         )
         has_jobs = True
-        logger.info("Hourly collection job enabled")
+        logger.info("Hourly collection job enabled (fires at :05 every hour)")
     else:
         logger.info("Hourly collection disabled by configuration")
 

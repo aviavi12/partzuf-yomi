@@ -18,6 +18,15 @@ async def run_collection_pipeline(db: AsyncSession) -> dict:
         logger.info(f"Demo mode: loaded {count} articles")
     else:
         try:
+            from app.collectors.bbc_collector import collect_bbc_news
+            bbc_result = await collect_bbc_news(db)
+            results["collected"] += bbc_result.get("collected", 0)
+            results["duplicates"] += bbc_result.get("duplicates", 0)
+        except Exception as e:
+            logger.error(f"BBC collector error: {e}")
+            results["errors"].append(f"BBC: {str(e)}")
+
+        try:
             from app.collectors.ap_collector import collect_ap_news
             ap_result = await collect_ap_news(db)
             results["collected"] += ap_result.get("collected", 0)

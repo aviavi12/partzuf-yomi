@@ -269,7 +269,14 @@ async def send_hourly_digest(db: AsyncSession) -> dict:
     current_hour = now.hour
     hour_stage = HOUR_TO_STAGE.get(current_hour, "adult")
 
-    msg = _format_hourly_message(now, data, hour_stage)
+    historical = {}
+    try:
+        from app.services.archive_service import fetch_historical_news
+        historical = await fetch_historical_news(now.date())
+    except Exception as e:
+        logger.warning(f"Historical fetch failed: {e}")
+
+    msg = _format_hourly_message(now, data, hour_stage, historical)
 
     import telegram
     bot = telegram.Bot(token=settings.telegram_bot_token)
@@ -282,7 +289,7 @@ async def send_hourly_digest(db: AsyncSession) -> dict:
     return {"status": "sent", "channels": {"unified": result}}
 
 
-def _format_hourly_message(now: datetime, data: dict, hour_stage: str) -> str:
+def _format_hourly_message(now: datetime, data: dict, hour_stage: str, historical: dict | None = None) -> str:
     time_str = now.strftime("%H:%M %d/%m/%Y")
     total = len(data["global_articles"]) + len(data["israel_articles"])
     icon = STAGE_ICONS.get(hour_stage, "🧬")
@@ -292,8 +299,11 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str) -> str:
     lines = [
         f"📰 <b>מבזק שעתי — {time_str}</b>",
         f"{icon} <b>שעת {stage_name}</b>",
-        "",
     ]
+
+    if historical and historical.get("today_hebrew"):
+        lines.append(f"📅 {historical['today_hebrew']}")
+    lines.append("")
 
     if data["global_articles"]:
         lines.append("🌍 <b>הפרצוף היומי</b>")
@@ -317,11 +327,55 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str) -> str:
     if data["avg_mother"]:
         lines.append(f"👩 אם: {_top_attrs(data['avg_mother'], MOTHER_ATTR_HE)}")
 
-    lines.append(f"📊 שלב דומיננטי באירועים: {dom_he} ({total})")
+    lines.append(f"📊 שלב דומיננטי: {dom_he} ({total})")
+
+    if historical:
+        hist_lines = _format_historical_section(historical)
+        if hist_lines:
+            lines.append("")
+            lines.extend(hist_lines)
+
     lines.append("")
     lines.append("⚠️ <i>מודל אנליטי מטפורי — אין לראות בו קביעה מדעית.</i>")
 
     return "\n".join(lines)
+
+
+def _format_historical_section(hist: dict) -> list[str]:
+    lines = []
+    has_content = False
+
+    g1 = hist.get("gregorian_1y", {})
+    g2 = hist.get("gregorian_2y", {})
+    h1 = hist.get("hebrew_1y", {})
+    h2 = hist.get("hebrew_2y", {})
+
+    if g1.get("headlines"):
+        lines.append("━━━━━━━━━━━━")
+        lines.append(f"📜 <b>לפני שנה (לועזי) — {g1['label']}</b>")
+        for h in g1["headlines"][:3]:
+            lines.append(f"• {h[:80]}")
+        has_content = True
+
+    if g2.get("headlines"):
+        lines.append(f"📜 <b>לפני שנתיים (לועזי) — {g2['label']}</b>")
+        for h in g2["headlines"][:3]:
+            lines.append(f"• {h[:80]}")
+        has_content = True
+
+    if h1.get("headlines"):
+        lines.append(f"🕎 <b>לפני שנה (עברי) — {h1['hebrew_label']} ({h1['gregorian_label']})</b>")
+        for h in h1["headlines"][:3]:
+            lines.append(f"• {h[:80]}")
+        has_content = True
+
+    if h2.get("headlines"):
+        lines.append(f"🕎 <b>לפני שנתיים (עברי) — {h2['hebrew_label']} ({h2['gregorian_label']})</b>")
+        for h in h2["headlines"][:3]:
+            lines.append(f"• {h[:80]}")
+        has_content = True
+
+    return lines if has_content else []
 
 
 def _format_daily_full_analysis(date_str: str, data: dict, trend_text: str) -> str:

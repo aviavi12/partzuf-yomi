@@ -39,6 +39,9 @@ feedparser==6.0.11
 python-dateutil==2.9.0
 pytz==2025.2
 
+# Hebrew calendar
+pyluach==2.2.0
+
 # Testing
 pytest==8.4.1
 pytest-asyncio==1.0.0

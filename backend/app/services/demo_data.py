@@ -21,6 +21,14 @@ DEMO_SOURCES = [
         "reliability_score": 0.9,
     },
     {
+        "name": "BBC World News",
+        "slug": "bbc",
+        "url": "https://www.bbc.com/news/world",
+        "source_type": "international",
+        "language": "en",
+        "reliability_score": 0.95,
+    },
+    {
         "name": "Rotter",
         "slug": "rotter",
         "url": "https://rotter.net/",
