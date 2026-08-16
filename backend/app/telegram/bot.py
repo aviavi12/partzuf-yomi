@@ -113,29 +113,26 @@ def _is_spam(headline: str) -> bool:
     return any(kw in h for kw in SPAM_KEYWORDS)
 
 
-def _translate_headline(text: str) -> str:
-    try:
-        from deep_translator import GoogleTranslator
-        translated = GoogleTranslator(source="en", target="iw").translate(text)
-        return translated or text
-    except Exception:
-        return text
-
-
-def _translate_headlines_batch(headlines: list[str]) -> list[str]:
+def _translate_batch(texts: list[str]) -> list[str]:
+    if not texts:
+        return []
     try:
         from deep_translator import GoogleTranslator
         translator = GoogleTranslator(source="en", target="iw")
-        results = []
-        for h in headlines:
-            try:
-                t = translator.translate(h)
-                results.append(t or h)
-            except Exception:
-                results.append(h)
-        return results
+        combined = "\n||||\n".join(texts)
+        if len(combined) > 4500:
+            combined = combined[:4500]
+        result = translator.translate(combined)
+        if result:
+            parts = result.split("\n||||\n")
+            if len(parts) == len(texts):
+                return parts
+            parts = result.split("||||")
+            if len(parts) == len(texts):
+                return [p.strip() for p in parts]
+        return [translator.translate(t) or t for t in texts[:8]]
     except Exception:
-        return headlines
+        return texts
 
 
 def _get_chat_ids() -> dict[str, str]:
@@ -240,15 +237,31 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-        headline = article.headline or ""
-        if article.language == "en" and headline:
-            headline = _translate_headline(headline)
-
-        entry = {"headline": headline, "stage_label": stage_label}
+        entry = {"headline": article.headline or "", "stage_label": stage_label, "lang": article.language}
         if not is_israeli:
             global_articles.append(entry)
         else:
             israel_articles.append(entry)
+
+    en_indices = []
+    en_texts = []
+    for i, a in enumerate(global_articles):
+        if a.get("lang") == "en" and a["headline"]:
+            en_indices.append(("global", i))
+            en_texts.append(a["headline"])
+    for i, a in enumerate(israel_articles):
+        if a.get("lang") == "en" and a["headline"]:
+            en_indices.append(("israel", i))
+            en_texts.append(a["headline"])
+
+    if en_texts:
+        translated = _translate_batch(en_texts)
+        for idx, (source, pos) in enumerate(en_indices):
+            if idx < len(translated):
+                if source == "global":
+                    global_articles[pos]["headline"] = translated[idx]
+                else:
+                    israel_articles[pos]["headline"] = translated[idx]
 
     dominant = max(stage_counts, key=stage_counts.get) if stage_counts else "unknown"
     try:
