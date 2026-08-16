@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 import feedparser
 import httpx
@@ -94,13 +94,16 @@ def translate_batch(texts: list[str]) -> list[str]:
 async def _fetch_wayback_headlines(target_date: date, max_headlines: int = 4) -> list[str]:
     ts = target_date.strftime("%Y%m%d")
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            from_date = (target_date - timedelta(days=7)).strftime("%Y%m%d")
+            to_date = (target_date + timedelta(days=7)).strftime("%Y%m%d") + "235959"
+
             cdx_resp = await client.get(WAYBACK_CDX, params={
                 "url": f"http://{BBC_RSS_URL}",
-                "from": ts,
-                "to": ts + "235959",
+                "from": from_date,
+                "to": to_date,
                 "output": "json",
-                "limit": "1",
+                "limit": "5",
                 "fl": "timestamp",
             })
 
@@ -111,8 +114,11 @@ async def _fetch_wayback_headlines(target_date: date, max_headlines: int = 4) ->
             if len(rows) < 2:
                 return []
 
-            timestamp = rows[1][0]
-            raw_url = f"https://web.archive.org/web/{timestamp}id_/http://{BBC_RSS_URL}"
+            target_int = int(ts + "120000")
+            timestamps = [row[0] for row in rows[1:]]
+            best_ts = min(timestamps, key=lambda t: abs(int(t) - target_int))
+
+            raw_url = f"https://web.archive.org/web/{best_ts}id_/http://{BBC_RSS_URL}"
 
             rss_resp = await client.get(raw_url, timeout=10.0, follow_redirects=True)
             feed = feedparser.parse(rss_resp.text)
@@ -140,9 +146,9 @@ async def fetch_historical_news(today: date) -> dict:
 
     heb_1y_date = hist["hebrew_1y"]["date"]
     heb_2y_date = hist["hebrew_2y"]["date"]
-    if heb_1y_date and heb_1y_date != hist["gregorian_1y"]["date"]:
+    if heb_1y_date:
         dates_to_fetch.append(("hebrew_1y", heb_1y_date))
-    if heb_2y_date and heb_2y_date != hist["gregorian_2y"]["date"]:
+    if heb_2y_date:
         dates_to_fetch.append(("hebrew_2y", heb_2y_date))
 
     tasks = [_fetch_wayback_headlines(d) for _, d in dates_to_fetch]

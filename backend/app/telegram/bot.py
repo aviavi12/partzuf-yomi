@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 
 import pytz
@@ -25,6 +26,22 @@ SPAM_KEYWORDS = [
     "sponsored", "מודעה", "פרסומת", "שיתוף פעולה מסחרי",
     "קנה", "buy now", "order now", "free shipping", "משלוח חינם",
     "ביטוח", "הלוואה", "משכנתא", "קזינו", "הימורים",
+    "למכירה", "להשכרה", "נדל\"ן", "דירה למכירה", "וילה להשכרה",
+    "טיסות", "חבילת נופש", "מלון", "resort", "סוויטה",
+    "קניון", "קולקציה", "עונת מכירות", "סייל", "בלאק פריידי",
+    "הירשמו", "לפרטים חייגו", "לינק בביו", "סרטון ממומן",
+    "click here", "limited offer", "act now", "בשיתוף עם",
+    "ש\"ח לחודש", "ש\"ח לשנה", "שקלים",
+    "שיווק", "promotion",
+]
+
+SPAM_PATTERNS = [
+    r'\d+[\s]*ש["׳]ח',
+    r'₪\s*\d+',
+    r'החל מ[-–\s]*\d+',
+    r'\d+%\s*(הנחה|off|הנחות)',
+    r'\d{3,}.*ללילה',
+    r'ב-?\d+.*לחודש',
 ]
 
 STAGE_ICONS = {
@@ -110,7 +127,43 @@ HOUR_TO_STAGE = {
 
 def _is_spam(headline: str) -> bool:
     h = headline.lower()
-    return any(kw in h for kw in SPAM_KEYWORDS)
+    if any(kw in h for kw in SPAM_KEYWORDS):
+        return True
+    for pattern in SPAM_PATTERNS:
+        if re.search(pattern, headline, re.IGNORECASE):
+            return True
+    return False
+
+
+def _classify_inline(headline: str, language: str = "he") -> dict:
+    from app.classifiers.rule_classifier import classify_article
+    result = classify_article(headline, "", "", language)
+    stage = result.get("developmental_stage", "")
+    try:
+        stage_label = f" [{STAGE_LABELS_HE.get(DevelopmentalStage(stage), stage)}]"
+    except ValueError:
+        stage_label = f" [{stage}]"
+    father = result.get("father_analogy", {})
+    mother = result.get("mother_analogy", {})
+    return {
+        "stage": stage,
+        "stage_label": stage_label,
+        "father_top": father.get("dominant_attributes", [])[:2],
+        "mother_top": mother.get("dominant_attributes", [])[:2],
+        "father_attrs": father.get("attributes", {}),
+        "mother_attrs": mother.get("attributes", {}),
+    }
+
+
+def _format_inline_analysis(article: dict) -> str:
+    parts = []
+    fa = article.get("father_top", [])
+    ma = article.get("mother_top", [])
+    if fa:
+        parts.append(f"👨{','.join(FATHER_ATTR_HE.get(x, x) for x in fa[:2])}")
+    if ma:
+        parts.append(f"👩{','.join(MOTHER_ATTR_HE.get(x, x) for x in ma[:2])}")
+    return " | ".join(parts) if parts else ""
 
 
 def _translate_batch(texts: list[str]) -> list[str]:
@@ -209,39 +262,62 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
         dev = dev_r.scalar_one_or_none()
 
         if not is_israeli:
-            if dev and dev.final_score < MIN_RELEVANCE_SCORE:
-                skipped += 1
-                continue
-            if not dev:
+            if not dev or dev.final_score < MIN_RELEVANCE_SCORE:
                 skipped += 1
                 continue
 
         stage_label = ""
+        father_top = []
+        mother_top = []
+
         if dev and dev.developmental_stage:
-            stage_counts[dev.developmental_stage] = stage_counts.get(dev.developmental_stage, 0) + 1
+            stage = dev.developmental_stage
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
             try:
-                stage_label = f" [{STAGE_LABELS_HE.get(DevelopmentalStage(dev.developmental_stage), dev.developmental_stage)}]"
+                stage_label = f" [{STAGE_LABELS_HE.get(DevelopmentalStage(stage), stage)}]"
             except ValueError:
-                stage_label = f" [{dev.developmental_stage}]"
+                stage_label = f" [{stage}]"
 
             if dev.father_attributes_json:
                 try:
-                    for k, v in json.loads(dev.father_attributes_json).items():
+                    father_data = json.loads(dev.father_attributes_json)
+                    for k, v in father_data.items():
                         all_father.setdefault(k, []).append(v)
+                    father_top = [k for k, _ in sorted(father_data.items(), key=lambda x: -x[1])[:2]]
                 except (json.JSONDecodeError, TypeError):
                     pass
             if dev.mother_attributes_json:
                 try:
-                    for k, v in json.loads(dev.mother_attributes_json).items():
+                    mother_data = json.loads(dev.mother_attributes_json)
+                    for k, v in mother_data.items():
                         all_mother.setdefault(k, []).append(v)
+                    mother_top = [k for k, _ in sorted(mother_data.items(), key=lambda x: -x[1])[:2]]
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-        entry = {"headline": article.headline or "", "stage_label": stage_label, "lang": article.language}
-        if not is_israeli:
-            global_articles.append(entry)
-        else:
+        elif is_israeli:
+            inline = _classify_inline(article.headline or "", article.language or "he")
+            stage = inline["stage"]
+            stage_label = inline["stage_label"]
+            father_top = inline["father_top"]
+            mother_top = inline["mother_top"]
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
+            for k, v in inline["father_attrs"].items():
+                all_father.setdefault(k, []).append(v)
+            for k, v in inline["mother_attrs"].items():
+                all_mother.setdefault(k, []).append(v)
+
+        entry = {
+            "headline": article.headline or "",
+            "stage_label": stage_label,
+            "lang": article.language,
+            "father_top": father_top,
+            "mother_top": mother_top,
+        }
+        if is_israeli:
             israel_articles.append(entry)
+        else:
+            global_articles.append(entry)
 
     en_indices = []
     en_texts = []
@@ -256,9 +332,9 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
 
     if en_texts:
         translated = _translate_batch(en_texts)
-        for idx, (source, pos) in enumerate(en_indices):
+        for idx, (src, pos) in enumerate(en_indices):
             if idx < len(translated):
-                if source == "global":
+                if src == "global":
                     global_articles[pos]["headline"] = translated[idx]
                 else:
                     israel_articles[pos]["headline"] = translated[idx]
@@ -351,13 +427,21 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str, historica
     if data["global_articles"]:
         lines.append("🌍 <b>הפרצוף היומי</b>")
         for a in data["global_articles"][:5]:
-            lines.append(f"• {a['headline'][:90]}{a['stage_label']}")
+            line = f"• {a['headline'][:80]}{a['stage_label']}"
+            analysis_str = _format_inline_analysis(a)
+            if analysis_str:
+                line += f"\n  {analysis_str}"
+            lines.append(line)
         lines.append("")
 
     if data["israel_articles"]:
         lines.append("🇮🇱 <b>הפרצוף הזמני</b>")
         for a in data["israel_articles"][:5]:
-            lines.append(f"• {a['headline'][:90]}{a['stage_label']}")
+            line = f"• {a['headline'][:80]}{a['stage_label']}"
+            analysis_str = _format_inline_analysis(a)
+            if analysis_str:
+                line += f"\n  {analysis_str}"
+            lines.append(line)
         lines.append("")
 
     lines.append("━━━━━━━━━━━━")
@@ -386,45 +470,42 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str, historica
 
 def _format_historical_section(hist: dict) -> list[str]:
     lines = []
-    has_content = False
+    has_any = False
 
-    g1 = hist.get("gregorian_1y", {})
-    g2 = hist.get("gregorian_2y", {})
-    h1 = hist.get("hebrew_1y", {})
-    h2 = hist.get("hebrew_2y", {})
+    sections = [
+        ("gregorian_1y", "📜", "לפני שנה (לועזי)", lambda s: s.get("label", "")),
+        ("gregorian_2y", "📜", "לפני שנתיים (לועזי)", lambda s: s.get("label", "")),
+        ("hebrew_1y", "🕎", "לפני שנה (עברי)",
+         lambda s: f"{s.get('hebrew_label', '')} ({s.get('gregorian_label', '')})"),
+        ("hebrew_2y", "🕎", "לפני שנתיים (עברי)",
+         lambda s: f"{s.get('hebrew_label', '')} ({s.get('gregorian_label', '')})"),
+    ]
 
-    if g1.get("headlines") or g2.get("headlines"):
-        lines.append("━━━━━━━━━━━━")
+    for key, icon, title, label_fn in sections:
+        section = hist.get(key, {})
+        headlines = section.get("headlines", [])
+        if not headlines:
+            continue
+        if not has_any:
+            lines.append("━━━━━━━━━━━━")
+            has_any = True
 
-    if g1.get("headlines"):
-        lines.append(f"📜 <b>לפני שנה (לועזי) — {g1['label']}</b>")
-        for h in g1["headlines"][:3]:
-            lines.append(f"• {h[:80]}")
-        has_content = True
+        lines.append(f"{icon} <b>{title} — {label_fn(section)}</b>")
+        for h in headlines[:3]:
+            analysis = _classify_inline(h, "he")
+            fa = [FATHER_ATTR_HE.get(x, x) for x in analysis["father_top"][:2]]
+            ma = [MOTHER_ATTR_HE.get(x, x) for x in analysis["mother_top"][:2]]
+            line = f"• {h[:70]}{analysis['stage_label']}"
+            parts = []
+            if fa:
+                parts.append(f"👨{','.join(fa)}")
+            if ma:
+                parts.append(f"👩{','.join(ma)}")
+            if parts:
+                line += f"\n  {' | '.join(parts)}"
+            lines.append(line)
 
-    if g2.get("headlines"):
-        lines.append(f"📜 <b>לפני שנתיים (לועזי) — {g2['label']}</b>")
-        for h in g2["headlines"][:3]:
-            lines.append(f"• {h[:80]}")
-        has_content = True
-
-    if h1.get("headlines") or h2.get("headlines"):
-        if has_content:
-            lines.append("")
-
-    if h1.get("headlines"):
-        lines.append(f"🕎 <b>לפני שנה (עברי) — {h1['hebrew_label']} ({h1['gregorian_label']})</b>")
-        for h in h1["headlines"][:3]:
-            lines.append(f"• {h[:80]}")
-        has_content = True
-
-    if h2.get("headlines"):
-        lines.append(f"🕎 <b>לפני שנתיים (עברי) — {h2['hebrew_label']} ({h2['gregorian_label']})</b>")
-        for h in h2["headlines"][:3]:
-            lines.append(f"• {h[:80]}")
-        has_content = True
-
-    return lines if has_content else []
+    return lines if has_any else []
 
 
 def _format_daily_full_analysis(date_str: str, data: dict, trend_text: str) -> str:
