@@ -266,12 +266,14 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
                 skipped += 1
                 continue
 
+        stage_raw = ""
         stage_label = ""
         father_top = []
         mother_top = []
 
         if dev and dev.developmental_stage:
             stage = dev.developmental_stage
+            stage_raw = stage
             stage_counts[stage] = stage_counts.get(stage, 0) + 1
             try:
                 stage_label = f" [{STAGE_LABELS_HE.get(DevelopmentalStage(stage), stage)}]"
@@ -298,6 +300,7 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
         elif is_israeli:
             inline = _classify_inline(article.headline or "", article.language or "he")
             stage = inline["stage"]
+            stage_raw = stage
             stage_label = inline["stage_label"]
             father_top = inline["father_top"]
             mother_top = inline["mother_top"]
@@ -309,6 +312,7 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
 
         entry = {
             "headline": article.headline or "",
+            "stage": stage_raw,
             "stage_label": stage_label,
             "lang": article.language,
             "father_top": father_top,
@@ -513,45 +517,65 @@ def _format_daily_full_analysis(date_str: str, data: dict, trend_text: str) -> s
     dom = data["dominant"]
     dom_he = data["dominant_he"]
 
+    stage_articles: dict[str, list[dict]] = {}
+    for a in data["global_articles"] + data["israel_articles"]:
+        s = a.get("stage", "")
+        if s:
+            stage_articles.setdefault(s, []).append(a)
+
     lines = [
         f"🧬 <b>סיכום יומי — {date_str}</b>",
-        f"📊 סה\"כ: {total} אירועים",
+        f"📊 סה\"כ: {total} אירועים | שלב דומיננטי: {dom_he}",
+        "",
+        "━━━━━━━━━━━━",
+        "<b>📖 סיפור ההתפתחות של היום</b>",
         "",
     ]
 
-    if data["global_articles"]:
-        lines.append("🌍 <b>הפרצוף היומי — חדשות העולם</b>")
-        for a in data["global_articles"][:5]:
-            lines.append(f"• {a['headline'][:80]}{a['stage_label']}")
-        lines.append("")
-
-    if data["israel_articles"]:
-        lines.append("🇮🇱 <b>הפרצוף הזמני — חדשות ישראל</b>")
-        for a in data["israel_articles"][:5]:
-            lines.append(f"• {a['headline'][:80]}{a['stage_label']}")
-        lines.append("")
-
-    lines.append("━━━━━━━━━━━━")
-    lines.append("<b>📖 סיפור ההתפתחות של היום</b>")
-    lines.append("")
-
     for stage in ALL_STAGES:
-        count = data["stage_counts"].get(stage, 0)
         icon = STAGE_ICONS.get(stage, "•")
-        full = STAGE_NARRATIVE_FULL.get(stage, stage)
+        name = STAGE_NARRATIVE_SHORT.get(stage, stage)
+        full_desc = STAGE_NARRATIVE_FULL.get(stage, "")
+        short_desc = full_desc.split(" — ", 1)[1].split(".")[0] if " — " in full_desc else name
         perception = SON_PERCEPTION.get(stage, "")
+        articles = stage_articles.get(stage, [])
+        count = data["stage_counts"].get(stage, 0)
+        is_dominant = stage == dom
 
-        if stage == dom:
-            lines.append(f"<b>{icon} ▸ {full} ◂</b>")
-            lines.append(f"   👁 הבן: {perception}")
-            lines.append(f"   [{count} אירועים — השלב הדומיננטי]")
-        elif count > 0:
-            lines.append(f"{icon} {full}")
-            lines.append(f"   👁 {perception} [{count}]")
+        if not articles:
+            lines.append(f"{icon} <i>{name} — שקט</i>")
+            continue
+
+        if is_dominant:
+            lines.append(f"<b>{icon} ▸ {name} — {short_desc} ◂</b>")
         else:
-            lines.append(f"{icon} <i>{STAGE_NARRATIVE_SHORT.get(stage, stage)} — שקט</i>")
+            lines.append(f"{icon} <b>{name}</b> — {short_desc}")
 
-    lines.append("")
+        limit = 2 if is_dominant else 1
+        for a in articles[:limit]:
+            lines.append(f"• {a['headline'][:70]}")
+
+        fa_all = []
+        ma_all = []
+        for a in articles:
+            fa_all.extend(a.get("father_top", []))
+            ma_all.extend(a.get("mother_top", []))
+        fa_uniq = list(dict.fromkeys(fa_all))[:2]
+        ma_uniq = list(dict.fromkeys(ma_all))[:2]
+
+        parts = []
+        if fa_uniq:
+            parts.append(f"👨{','.join(FATHER_ATTR_HE.get(x, x) for x in fa_uniq)}")
+        if ma_uniq:
+            parts.append(f"👩{','.join(MOTHER_ATTR_HE.get(x, x) for x in ma_uniq)}")
+        if parts:
+            lines.append(" | ".join(parts))
+        if perception:
+            lines.append(f"👁 {perception}")
+        if is_dominant:
+            lines.append(f"[{count} אירועים — השלב הדומיננטי]")
+        lines.append("")
+
     lines.append("━━━━━━━━━━━━")
     lines.append("<b>מנועי אב ואם — ממוצע יומי</b>")
 
@@ -563,7 +587,8 @@ def _format_daily_full_analysis(date_str: str, data: dict, trend_text: str) -> s
     lines.append("")
 
     if trend_text:
-        lines.append(trend_text)
+        trend_short = trend_text[:600] if len(trend_text) > 600 else trend_text
+        lines.append(trend_short)
         lines.append("")
 
     lines.append("⚠️ <i>זהו מודל אנליטי מטפורי — אין לראות בו קביעה מדעית או רפואית.</i>")
