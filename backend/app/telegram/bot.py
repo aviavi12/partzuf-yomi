@@ -442,8 +442,15 @@ async def send_hourly_digest(db: AsyncSession) -> dict:
     try:
         from app.services.archive_service import fetch_historical_news
         historical = await fetch_historical_news(now.date())
+        has_headlines = any(
+            historical.get(k, {}).get("headlines")
+            for k in ("gregorian_1y", "gregorian_2y", "hebrew_1y", "hebrew_2y")
+        )
+        if not has_headlines:
+            historical["_unavailable"] = True
     except Exception as e:
         logger.warning(f"Historical fetch failed: {e}")
+        historical = {"_unavailable": True}
 
     msg = _format_hourly_message(now, data, hour_stage, historical)
 
@@ -507,10 +514,15 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str, historica
     lines.append(f"📊 שלב דומיננטי: {dom_he} ({total})")
 
     if historical:
-        hist_lines = _format_historical_section(historical)
-        if hist_lines:
+        if historical.get("_unavailable"):
             lines.append("")
-            lines.extend(hist_lines)
+            lines.append("━━━━━━━━━━━━")
+            lines.append("📜 <i>ארכיון היסטורי — שירות זמנית אינו זמין</i>")
+        else:
+            hist_lines = _format_historical_section(historical)
+            if hist_lines:
+                lines.append("")
+                lines.extend(hist_lines)
 
     lines.append("")
     lines.append("⚠️ <i>מודל אנליטי מטפורי — אין לראות בו קביעה מדעית.</i>")
