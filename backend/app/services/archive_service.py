@@ -93,47 +93,54 @@ def translate_batch(texts: list[str]) -> list[str]:
 
 async def _fetch_wayback_headlines(target_date: date, max_headlines: int = 4) -> list[str]:
     ts = target_date.strftime("%Y%m%d")
-    try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            from_date = (target_date - timedelta(days=7)).strftime("%Y%m%d")
-            to_date = (target_date + timedelta(days=7)).strftime("%Y%m%d") + "235959"
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                from_date = (target_date - timedelta(days=14)).strftime("%Y%m%d")
+                to_date = (target_date + timedelta(days=14)).strftime("%Y%m%d") + "235959"
 
-            cdx_resp = await client.get(WAYBACK_CDX, params={
-                "url": f"http://{BBC_RSS_URL}",
-                "from": from_date,
-                "to": to_date,
-                "output": "json",
-                "limit": "5",
-                "fl": "timestamp",
-            })
+                cdx_resp = await client.get(WAYBACK_CDX, params={
+                    "url": f"http://{BBC_RSS_URL}",
+                    "from": from_date,
+                    "to": to_date,
+                    "output": "json",
+                    "limit": "10",
+                    "fl": "timestamp",
+                })
 
-            if cdx_resp.status_code != 200:
-                return []
+                if cdx_resp.status_code != 200:
+                    logger.warning(f"CDX returned {cdx_resp.status_code} for {target_date}")
+                    if attempt == 0:
+                        await asyncio.sleep(2)
+                        continue
+                    return []
 
-            rows = cdx_resp.json()
-            if len(rows) < 2:
-                return []
+                rows = cdx_resp.json()
+                if len(rows) < 2:
+                    return []
 
-            target_int = int(ts + "120000")
-            timestamps = [row[0] for row in rows[1:]]
-            best_ts = min(timestamps, key=lambda t: abs(int(t) - target_int))
+                target_int = int(ts + "120000")
+                timestamps = [row[0] for row in rows[1:]]
+                best_ts = min(timestamps, key=lambda t: abs(int(t) - target_int))
 
-            raw_url = f"https://web.archive.org/web/{best_ts}id_/http://{BBC_RSS_URL}"
+                raw_url = f"https://web.archive.org/web/{best_ts}id_/http://{BBC_RSS_URL}"
 
-            rss_resp = await client.get(raw_url, timeout=10.0, follow_redirects=True)
-            feed = feedparser.parse(rss_resp.text)
+                rss_resp = await client.get(raw_url, timeout=15.0, follow_redirects=True)
+                feed = feedparser.parse(rss_resp.text)
 
-            headlines = []
-            for entry in feed.entries[:max_headlines]:
-                title = entry.get("title", "").strip()
-                if title:
-                    headlines.append(title)
+                headlines = []
+                for entry in feed.entries[:max_headlines]:
+                    title = entry.get("title", "").strip()
+                    if title:
+                        headlines.append(title)
 
-            return headlines
+                return headlines
 
-    except Exception as e:
-        logger.warning(f"Wayback fetch failed for {target_date}: {e}")
-        return []
+        except Exception as e:
+            logger.warning(f"Wayback attempt {attempt+1} failed for {target_date}: {e}")
+            if attempt == 0:
+                await asyncio.sleep(2)
+    return []
 
 
 async def fetch_historical_news(today: date) -> dict:

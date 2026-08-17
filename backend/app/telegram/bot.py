@@ -42,6 +42,11 @@ SPAM_PATTERNS = [
     r'\d+%\s*(הנחה|off|הנחות)',
     r'\d{3,}.*ללילה',
     r'ב-?\d+.*לחודש',
+    r'^מאת\s+',
+    r'^rotter\.net',
+    r'^https?://',
+    r'^\w+\.\w+$',
+    r'^עדכון:?\s*$',
 ]
 
 STAGE_ICONS = {
@@ -135,6 +140,13 @@ def _is_spam(headline: str) -> bool:
     return False
 
 
+def _truncate(text: str, max_len: int = 100) -> str:
+    if len(text) <= max_len:
+        return text
+    cut = text[:max_len].rsplit(" ", 1)[0]
+    return cut + "..." if cut else text[:max_len] + "..."
+
+
 def _classify_inline(headline: str, language: str = "he") -> dict:
     from app.classifiers.rule_classifier import classify_article
     result = classify_article(headline, "", "", language)
@@ -166,26 +178,60 @@ def _format_inline_analysis(article: dict) -> str:
     return " | ".join(parts) if parts else ""
 
 
+def _is_hebrew(text: str) -> bool:
+    hebrew_chars = sum(1 for c in text if '֐' <= c <= '׿')
+    return hebrew_chars > len(text) * 0.3
+
+
 def _translate_batch(texts: list[str]) -> list[str]:
     if not texts:
         return []
+    to_translate = []
+    indices = []
+    result_list = list(texts)
+    for i, t in enumerate(texts):
+        if not _is_hebrew(t):
+            to_translate.append(t)
+            indices.append(i)
+    if not to_translate:
+        return result_list
     try:
         from deep_translator import GoogleTranslator
         translator = GoogleTranslator(source="en", target="iw")
-        combined = "\n||||\n".join(texts)
+        combined = "\n||||\n".join(to_translate)
         if len(combined) > 4500:
             combined = combined[:4500]
-        result = translator.translate(combined)
-        if result:
-            parts = result.split("\n||||\n")
-            if len(parts) == len(texts):
-                return parts
-            parts = result.split("||||")
-            if len(parts) == len(texts):
-                return [p.strip() for p in parts]
-        return [translator.translate(t) or t for t in texts[:8]]
-    except Exception:
-        return texts
+        translated = translator.translate(combined)
+        if translated:
+            parts = translated.split("\n||||\n")
+            if len(parts) != len(to_translate):
+                parts = translated.split("||||")
+            if len(parts) == len(to_translate):
+                for idx, orig_i in enumerate(indices):
+                    result_list[orig_i] = parts[idx].strip()
+                return result_list
+        for idx, orig_i in enumerate(indices):
+            try:
+                t = translator.translate(to_translate[idx])
+                if t:
+                    result_list[orig_i] = t
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Batch translation failed: {e}")
+        try:
+            from deep_translator import GoogleTranslator
+            translator = GoogleTranslator(source="en", target="iw")
+            for idx, orig_i in enumerate(indices):
+                try:
+                    t = translator.translate(to_translate[idx])
+                    if t:
+                        result_list[orig_i] = t
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return result_list
 
 
 def _get_chat_ids() -> dict[str, str]:
@@ -326,11 +372,11 @@ async def _gather_analysis(db: AsyncSession, articles: list) -> dict:
     en_indices = []
     en_texts = []
     for i, a in enumerate(global_articles):
-        if a.get("lang") == "en" and a["headline"]:
+        if a["headline"] and not _is_hebrew(a["headline"]):
             en_indices.append(("global", i))
             en_texts.append(a["headline"])
     for i, a in enumerate(israel_articles):
-        if a.get("lang") == "en" and a["headline"]:
+        if a["headline"] and not _is_hebrew(a["headline"]):
             en_indices.append(("israel", i))
             en_texts.append(a["headline"])
 
@@ -431,7 +477,7 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str, historica
     if data["global_articles"]:
         lines.append("🌍 <b>הפרצוף היומי</b>")
         for a in data["global_articles"][:5]:
-            line = f"• {a['headline'][:80]}{a['stage_label']}"
+            line = f"• {_truncate(a['headline'])}{a['stage_label']}"
             analysis_str = _format_inline_analysis(a)
             if analysis_str:
                 line += f"\n  {analysis_str}"
@@ -441,7 +487,7 @@ def _format_hourly_message(now: datetime, data: dict, hour_stage: str, historica
     if data["israel_articles"]:
         lines.append("🇮🇱 <b>הפרצוף הזמני</b>")
         for a in data["israel_articles"][:5]:
-            line = f"• {a['headline'][:80]}{a['stage_label']}"
+            line = f"• {_truncate(a['headline'])}{a['stage_label']}"
             analysis_str = _format_inline_analysis(a)
             if analysis_str:
                 line += f"\n  {analysis_str}"
@@ -499,7 +545,7 @@ def _format_historical_section(hist: dict) -> list[str]:
             analysis = _classify_inline(h, "he")
             fa = [FATHER_ATTR_HE.get(x, x) for x in analysis["father_top"][:2]]
             ma = [MOTHER_ATTR_HE.get(x, x) for x in analysis["mother_top"][:2]]
-            line = f"• {h[:70]}{analysis['stage_label']}"
+            line = f"• {_truncate(h)}{analysis['stage_label']}"
             parts = []
             if fa:
                 parts.append(f"👨{','.join(fa)}")
@@ -553,7 +599,7 @@ def _format_daily_full_analysis(date_str: str, data: dict, trend_text: str) -> s
 
         limit = 2 if is_dominant else 1
         for a in articles[:limit]:
-            lines.append(f"• {a['headline'][:70]}")
+            lines.append(f"• {_truncate(a['headline'])}")
 
         fa_all = []
         ma_all = []

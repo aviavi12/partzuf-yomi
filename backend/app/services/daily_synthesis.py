@@ -273,7 +273,13 @@ def _generate_trend_text(
     daily_vector: dict[str, float],
     temporal: dict,
 ) -> str:
-    event_list = ", ".join(dominant_events.keys()) if dominant_events else "לא זוהו"
+    event_labels = []
+    for et in dominant_events.keys():
+        try:
+            event_labels.append(EVENT_TYPE_LABELS_HE.get(EventType(et), et))
+        except ValueError:
+            event_labels.append(et)
+    event_list = ", ".join(event_labels) if event_labels else "לא זוהו"
 
     lines = [
         f"המגמה היומית:",
