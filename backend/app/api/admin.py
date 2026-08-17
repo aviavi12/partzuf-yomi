@@ -112,6 +112,25 @@ async def run_synthesis(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/recent-messages")
+async def recent_messages(db: AsyncSession = Depends(get_db), limit: int = 5):
+    q = select(TelegramMessage).where(
+        TelegramMessage.status == "sent"
+    ).order_by(TelegramMessage.sent_at.desc()).limit(limit)
+    result = await db.execute(q)
+    msgs = result.scalars().all()
+    return [
+        {
+            "id": m.id,
+            "type": m.message_type,
+            "content": m.content,
+            "telegram_message_id": m.telegram_message_id,
+            "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+        }
+        for m in msgs
+    ]
+
+
 @router.post("/full-pipeline")
 async def full_pipeline(db: AsyncSession = Depends(get_db)):
     from app.services.pipeline import run_collection_pipeline, run_analysis_pipeline, send_hourly_telegram
